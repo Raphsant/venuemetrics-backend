@@ -45,6 +45,7 @@ db.exec(`
     unique_count   INTEGER NOT NULL,
     uploaded_by    TEXT,
     json           TEXT NOT NULL,
+    flagged        INTEGER NOT NULL DEFAULT 0,
     UNIQUE (started_at_utc, territory_id)
   );
   CREATE TABLE IF NOT EXISTS presence (
@@ -54,6 +55,9 @@ db.exec(`
     last_seen_ms   INTEGER NOT NULL
   );
 `);
+
+// Migration for databases created before the flagged column existed.
+try { db.exec("ALTER TABLE sessions ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
 
 // ---------- regulars (port of the plugin's RegularsAnalyzer) ----------
 
@@ -166,11 +170,29 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/sessions") {
-      const rows = db.prepare(`SELECT id, started_at_utc AS StartedAtUtc, ended_at_utc AS EndedAtUtc,
+      const rows = db.prepare(`SELECT id AS Id, started_at_utc AS StartedAtUtc, ended_at_utc AS EndedAtUtc,
                                       territory_name AS TerritoryName, peak AS Peak,
-                                      unique_count AS UniqueCount, uploaded_by AS UploadedBy
+                                      unique_count AS UniqueCount, uploaded_by AS UploadedBy, flagged
                                FROM sessions ORDER BY started_at_utc DESC`).all();
-      return json(res, 200, rows);
+      return json(res, 200, rows.map((r) => ({ ...r, flagged: undefined, Flagged: !!r.flagged })));
+    }
+
+    // Mark/unmark a session for deletion. Actual deletion is an explicit admin
+    // action (DELETE /sessions/flagged below), so a mis-click can't lose a night.
+    const flagMatch = url.pathname.match(/^\/sessions\/(\d+)\/flag$/);
+    if (req.method === "POST" && flagMatch) {
+      const b = await readBody(req);
+      const r = db.prepare("UPDATE sessions SET flagged = ? WHERE id = ?")
+                  .run(b?.Flagged ? 1 : 0, Number(flagMatch[1]));
+      if (r.changes === 0) return json(res, 404, { error: "no such session" });
+      return json(res, 200, { ok: true, flagged: !!b?.Flagged });
+    }
+
+    // Purge everything that was flagged. Meant for the admin, e.g.:
+    //   curl -X DELETE -H "Authorization: Bearer $TOKEN" https://host/sessions/flagged
+    if (req.method === "DELETE" && url.pathname === "/sessions/flagged") {
+      const r = db.prepare("DELETE FROM sessions WHERE flagged = 1").run();
+      return json(res, 200, { deleted: r.changes });
     }
 
     const idMatch = url.pathname.match(/^\/sessions\/(\d+)$/);
