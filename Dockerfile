@@ -5,5 +5,6 @@ COPY server.js .
 VOLUME /data
 ENV DB_PATH=/data/venue.db
 EXPOSE 8080
-USER node
+# Runs as root: bind-mounted ./data dirs are root-owned when Docker creates them,
+# and a non-root user can't open the SQLite file there (ERR_SQLITE_ERROR errcode 14).
 CMD ["node", "server.js"]
