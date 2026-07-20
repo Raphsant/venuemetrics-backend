@@ -12,3 +12,6 @@ services:
       - VENUE_TOKEN=${VENUE_TOKEN:?set VENUE_TOKEN in the stack .env}
     volumes:
       - ./data:/data
+      # Optional: also serve the Dalamud plugin repo from this container.
+      # Deploy pluginmaster.json + VenueMetrics/latest.zip into ./repo.
+      - ./repo:/repo:ro

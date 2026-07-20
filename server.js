@@ -12,8 +12,8 @@
 
 import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const TOKEN = process.env.VENUE_TOKEN;
 if (!TOKEN) {
@@ -22,6 +22,11 @@ if (!TOKEN) {
 }
 const DB_PATH = process.env.DB_PATH ?? "/data/venue.db";
 const PORT = Number(process.env.PORT ?? 8080);
+
+// Optional Dalamud plugin-repo hosting: mount a folder with pluginmaster.json and
+// VenueMetrics/latest.zip here and both are served publicly (no token) so the same
+// container doubles as the plugin repository.
+const REPO_DIR = process.env.REPO_DIR ?? "/repo";
 
 // How long after its last heartbeat a plugin instance still counts as "running".
 const PRESENCE_TTL_MS = 3 * 60 * 1000;
@@ -130,6 +135,20 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   try {
     if (url.pathname === "/health") return json(res, 200, { ok: true });
+
+    // Public plugin-repo files (exact paths only — nothing else under REPO_DIR leaks).
+    if (req.method === "GET" && (url.pathname === "/pluginmaster.json" || url.pathname === "/VenueMetrics/latest.zip")) {
+      const file = join(REPO_DIR, url.pathname);
+      if (!existsSync(file)) return json(res, 404, { error: "plugin repo not populated" });
+      const isZip = url.pathname.endsWith(".zip");
+      res.writeHead(200, {
+        "Content-Type": isZip ? "application/zip" : "application/json",
+        "Content-Length": statSync(file).size,
+        // Short cache on the manifest so releases show up within a minute.
+        "Cache-Control": isZip ? "public, max-age=300" : "public, max-age=60",
+      });
+      return res.end(readFileSync(file));
+    }
 
     if (req.headers.authorization !== `Bearer ${TOKEN}`)
       return json(res, 401, { error: "missing or wrong bearer token" });
