@@ -1,0 +1,62 @@
+name: test-and-publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # Zero-dependency server: smoke-test it directly, no npm install needed.
+      - name: Smoke test
+        run: |
+          VENUE_TOKEN=ci-token DB_PATH=/tmp/ci.db PORT=8080 node server.js &
+          sleep 1
+          curl -sf http://127.0.0.1:8080/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/sessions)" = "401"
+          curl -sf -X POST http://127.0.0.1:8080/sessions \
+            -H "Authorization: Bearer ci-token" -H "Content-Type: application/json" \
+            -d '{"StartedAtUtc":"2026-01-01T22:00:00Z","TerritoryId":1,"TerritoryName":"CI","Peak":1,"Visitors":[{"Name":"A B","World":"W","FirstSeenUtc":"2026-01-01T22:01:00Z"}]}' \
+            | grep -q '"created":1'
+          curl -sf -H "Authorization: Bearer ci-token" "http://127.0.0.1:8080/regulars?minNights=1" \
+            | grep -q '"TotalNights":1'
+
+  publish:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

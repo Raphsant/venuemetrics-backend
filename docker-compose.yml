@@ -1,0 +1,14 @@
+# Dockge stack for the VenueMetrics backend.
+# The image is built and published by GitHub Actions; Dockge just pulls it.
+# Set VENUE_TOKEN in Dockge's .env panel. Re-pull to update.
+services:
+  venuemetrics:
+    image: ghcr.io/raphsant/venuemetrics-backend:latest
+    container_name: venuemetrics-backend
+    restart: unless-stopped
+    ports:
+      - "8710:8080"
+    environment:
+      - VENUE_TOKEN=${VENUE_TOKEN:?set VENUE_TOKEN in the stack .env}
+    volumes:
+      - ./data:/data
