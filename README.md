@@ -48,8 +48,10 @@ routes stay token-gated. Deploy new plugin builds by rsyncing into `./repo` (the
 |---|---|
 | `GET /health` | liveness, no auth |
 | `POST /sessions[?by=Name]` | upsert one session (object) or many (array — bulk import). Dedup key: `StartedAtUtc` + `TerritoryId`. Returns `{created, updated, rejected}` |
-| `GET /sessions` | night summaries, newest first |
+| `GET /sessions` | night summaries, newest first (includes `Flagged`) |
 | `GET /sessions/:id` | full session JSON |
+| `POST /sessions/:id/flag` | body `{"Flagged":true|false}` — mark/unmark a night for deletion (from the plugin's History tab) |
+| `DELETE /sessions/flagged` | purge every flagged night — admin action, e.g. `curl -X DELETE -H "Authorization: Bearer $VENUE_TOKEN" https://<host>/sessions/flagged` |
 | `GET /regulars?minNights=N&excluded=Name%0AName` | shared loyalty ranking, staff exclusions applied server-side |
 | `POST /presence` | plugin heartbeat; replies `{Others:[...]}` — other live trackers (in-game overlap warning) |
 | `DELETE /presence/:instanceId` | clean exit on session stop |
